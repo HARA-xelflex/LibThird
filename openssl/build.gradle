@@ -1,0 +1,89 @@
+apply plugin: 'com.android.model.application'
+import org.apache.tools.ant.taskdefs.condition.Os
+
+import java.util.regex.Matcher
+
+def home_path = System.getenv()["ORIFLAMME_HOME"]
+
+
+model {
+    android {
+        compileSdkVersion = 23
+        buildToolsVersion = "23.0.3"
+
+        defaultConfig {
+            minSdkVersion.apiLevel = 18
+            targetSdkVersion.apiLevel = 21
+            versionCode = 1
+            versionName = "1.0"
+        }
+    }
+    android.buildTypes {
+        release {
+            minifyEnabled = false
+            proguardFiles.add(file('proguard-rules.pro'))
+        }
+    }
+}
+
+dependencies {
+    compile fileTree(dir: new File(buildDir, 'libs'), include: '*.jar')
+}
+
+tasks.withType(JavaCompile) {
+    compileTask -> compileTask.dependsOn ndkBuild		// gradle様にお願いする時。jniLibs.srcDirの記述も必要
+    //compileTask -> compileTask.dependsOn ndkLibsToJar	// 自前でネイティブライブラリをJARに組み込む時
+}
+
+/* get NDK location
+* @return return NDK location as absolute file path, the value is end of File.separator
+*/
+def getNdkFolder() {
+    Properties properties = new Properties()
+    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    def ndkdir = properties.getProperty('ndk.dir', null)
+
+
+    if ((ndkdir == null) && (System.env.ANDROID_NDK_ROOT != null))
+        ndkdir = System.env.ANDROID_NDK_ROOT
+
+    if ((ndkdir == null) && (System.env.NDK_ROOT != null)) {
+        println("use NDK_ROOT environment variable as NDK location")
+        ndkdir = System.env.NDK_ROOT
+    }
+
+    if ((ndkdir == null) && (System.env.NDKROOT != null)) {
+        println("use NDKROOT environment variable as NDK location")
+        ndkdir = System.env.NDKROOT
+    }
+
+    if ((ndkdir == null) && (System.env.NDK != null)) {
+        println("use NDK environment variable as NDK location")
+        ndkdir = System.env.NDKT
+    }
+
+    if (ndkdir == null)
+        throw new GradleException("NDK location not found. Define location with ndk.dir in the local.properties file or with an ANDROID_NDK_ROOT/NDK_ROOT/NDKROOT/NDK environment variable.")
+
+    if (!ndkdir.endsWith('/'))
+        ndkdir = ndkdir + File.separator;
+    return ndkdir
+}
+
+// ndk-buildを使ってネイティブライブラリをビルドするタスク
+task ndkBuild(type: Exec, description: 'Compile JNI source via NDK') {
+    println('executing ndkBuild')
+    def ndkBuildingDir = getNdkFolder()
+    def ndkBuildPath = ndkBuildingDir
+    if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+        ndkBuildPath = ndkBuildingDir + '/ndk-build.cmd'
+    } else {
+        ndkBuildPath = ndkBuildingDir + '/ndk-build'
+    }
+    def output_path = projectDir.absolutePath.replaceAll("\\\\", "/")+"/build/outputs"
+    output_path = "NDK_OUT="+output_path
+    commandLine ndkBuildPath, output_path, 'NDK_LOG=1', 'V=1', '-j4', '-C', file('src/main').absolutePath
+    doLast {
+        println 'ndkBuild finished, Project :lib'+", "+output_path
+    }
+}
